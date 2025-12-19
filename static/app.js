@@ -5,9 +5,89 @@ const mic = document.getElementById("mic");
 const ttsToggle = document.getElementById("ttsToggle");
 const fileInput = document.getElementById("fileInput");
 const installBtn = document.getElementById("installBtn");
+const themeToggle = document.getElementById("themeToggle");
+const historyBtn = document.getElementById("historyBtn");
+const historyModal = document.getElementById("historyModal");
+const exportBtn = document.getElementById("exportBtn");
+const clearBtn = document.getElementById("clearBtn");
+const historyList = document.getElementById("historyList");
 
 let ttsEnabled = true;
 let deferredPrompt = null;
+
+// Theme Management
+function initTheme() {
+  const theme = localStorage.getItem("nova_theme") || "dark";
+  document.documentElement.setAttribute("data-theme", theme);
+  themeToggle.textContent = theme === "dark" ? "☀️" : "🌙";
+}
+
+themeToggle.addEventListener("click", () => {
+  const current = document.documentElement.getAttribute("data-theme") || "dark";
+  const newTheme = current === "dark" ? "light" : "dark";
+  document.documentElement.setAttribute("data-theme", newTheme);
+  localStorage.setItem("nova_theme", newTheme);
+  themeToggle.textContent = newTheme === "dark" ? "☀️" : "🌙";
+  haptic("light");
+});
+
+initTheme();
+
+// History Management
+async function loadAndDisplayHistory() {
+  try {
+    const res = await fetch("/api/history");
+    const data = await res.json();
+    const history = data.history || [];
+    
+    historyList.innerHTML = "";
+    if (history.length === 0) {
+      historyList.innerHTML = "<p>No chat history yet.</p>";
+      return;
+    }
+    
+    history.forEach((item) => {
+      const div = document.createElement("div");
+      div.className = `msg ${item.role === "user" ? "user" : "nova"}`;
+      div.textContent = `[${item.type || "text"}] ${item.message}`;
+      historyList.appendChild(div);
+    });
+  } catch (e) {
+    historyList.innerHTML = `<p>Error loading history: ${e.message}</p>`;
+  }
+}
+
+historyBtn.addEventListener("click", () => {
+  loadAndDisplayHistory();
+  historyModal.classList.add("show");
+});
+
+exportBtn.addEventListener("click", async () => {
+  try {
+    const res = await fetch("/api/history/export");
+    const history = await res.json();
+    const blob = new Blob([JSON.stringify(history, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `nova_history_${new Date().toISOString().split("T")[0]}.json`;
+    a.click();
+    haptic("medium");
+  } catch (e) {
+    alert("Export failed: " + e.message);
+  }
+});
+
+clearBtn.addEventListener("click", async () => {
+  if (!confirm("Are you sure you want to clear all chat history? This cannot be undone.")) return;
+  try {
+    await fetch("/api/history", { method: "DELETE" });
+    historyList.innerHTML = "<p>History cleared.</p>";
+    haptic("medium");
+  } catch (e) {
+    alert("Clear failed: " + e.message);
+  }
+});
 
 // PWA Install Prompt
 window.addEventListener("beforeinstallprompt", (e) => {

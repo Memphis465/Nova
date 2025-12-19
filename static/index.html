@@ -10,28 +10,37 @@
   <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'><rect fill='%237c3aed' width='180' height='180'/><text x='50%' y='50%' font-size='80' fill='white' text-anchor='middle' dominant-baseline='central' font-weight='bold'>N</text></svg>" />
   <title>Nova — Phone</title>
   <style>
+    :root{--bg:#0b0b0f;--bg-secondary:#0f1115;--fg:#e6e6ea;--primary:#7c3aed;--accent:#ff6b6b;--msg-user:#7c3aed;--msg-nova:#26262a}
+    [data-theme="light"]{--bg:#fafafa;--bg-secondary:#ffffff;--fg:#1a1a1a;--primary:#6d28d9;--accent:#ef4444;--msg-user:#6d28d9;--msg-nova:#e5e7eb}
     *{box-sizing:border-box}
     html,body{margin:0;padding:0;height:100%;width:100%;-webkit-user-select:none;user-select:none}
-    body{font-family:system-ui,Segoe UI,Helvetica,Arial;background:#0b0b0f;color:#e6e6ea;overflow:hidden;-webkit-font-smoothing:antialiased}
+    body{font-family:system-ui,Segoe UI,Helvetica,Arial;background:var(--bg);color:var(--fg);overflow:hidden;-webkit-font-smoothing:antialiased}
     .app{display:flex;flex-direction:column;height:100%;width:100%;max-width:100vw}
-    .header{padding:12px 16px;border-bottom:1px solid rgba(255,255,255,0.06);background:#0f1115;display:flex;justify-content:space-between;align-items:center}
+    .header{padding:12px 16px;border-bottom:1px solid rgba(255,255,255,0.06);background:var(--bg-secondary);display:flex;justify-content:space-between;align-items:center;gap:12px}
     .header h1{margin:0;font-size:18px;font-weight:600}
-    .install-btn{padding:6px 12px;font-size:12px;background:#7c3aed;color:white;border:none;border-radius:6px;cursor:pointer;display:none}
-    .install-btn.show{display:block}
+    .header-controls{display:flex;gap:8px;align-items:center}
+    .btn-small{padding:6px 12px;font-size:12px;background:var(--primary);color:white;border:none;border-radius:6px;cursor:pointer;display:flex;align-items:center;gap:4px;min-height:32px}
+    .btn-icon{width:32px;height:32px;padding:0;display:flex;align-items:center;justify-content:center;font-size:16px}
     .log{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:16px;display:flex;flex-direction:column;gap:8px}
-    .input-area{display:flex;flex-direction:column;padding:12px;border-top:1px solid rgba(255,255,255,0.06);gap:8px;background:#0f1115;flex-shrink:0}
+    .input-area{display:flex;flex-direction:column;padding:12px;border-top:1px solid rgba(255,255,255,0.06);gap:8px;background:var(--bg-secondary);flex-shrink:0}
     .hint{font-size:11px;color:#9aa0b2;padding:0 4px;line-height:1.3}
     .input-controls{display:flex;padding:8px;border-top:1px solid rgba(255,255,255,0.06);gap:8px;align-items:stretch}
     .controls{display:flex;gap:6px;flex-shrink:0}
-    input[type="text"]{flex:1;padding:12px;border-radius:8px;border:1px solid rgba(255,255,255,0.06);background:#0b0b0f;color:#fff;font-size:16px;-webkit-appearance:none;appearance:none}
-    button{padding:12px 16px;border-radius:8px;background:#7c3aed;color:white;border:none;font-weight:600;cursor:pointer;-webkit-appearance:none;appearance:none;min-height:44px;min-width:44px;display:flex;align-items:center;justify-content:center;font-size:16px}
+    input[type="text"]{flex:1;padding:12px;border-radius:8px;border:1px solid rgba(255,255,255,0.06);background:var(--bg);color:var(--fg);font-size:16px;-webkit-appearance:none;appearance:none}
+    button{padding:12px 16px;border-radius:8px;background:var(--primary);color:white;border:none;font-weight:600;cursor:pointer;-webkit-appearance:none;appearance:none;min-height:44px;min-width:44px;display:flex;align-items:center;justify-content:center;font-size:16px}
     button:active{opacity:0.8}
     button:disabled{opacity:0.5;cursor:not-allowed}
     .msg{padding:12px;border-radius:12px;margin:4px 0;word-wrap:break-word;max-width:95%;line-height:1.4}
-    .msg.user{color:#fff;background:#7c3aed;margin-left:auto;text-align:right;border-bottom-right-radius:4px}
-    .msg.nova{color:#fff;background:#26262a;border-bottom-left-radius:4px}
+    .msg.user{color:#fff;background:var(--msg-user);margin-left:auto;text-align:right;border-bottom-right-radius:4px}
+    .msg.nova{color:#fff;background:var(--msg-nova);border-bottom-left-radius:4px}
     #fileInput{display:none}
-    label[for="fileInput"]{cursor:pointer;background:#26262a;padding:12px;border-radius:8px;display:flex;align-items:center;justify-content:center;min-height:44px;min-width:44px;flex-shrink:0}
+    label[for="fileInput"]{cursor:pointer;background:var(--primary);color:white;padding:12px;border-radius:8px;display:flex;align-items:center;justify-content:center;min-height:44px;min-width:44px;flex-shrink:0;opacity:0.8}
+    label[for="fileInput"]:active{opacity:0.6}
+    .modal{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);align-items:center;justify-content:center;z-index:1000}
+    .modal.show{display:flex}
+    .modal-content{background:var(--bg-secondary);padding:24px;border-radius:12px;max-width:90%;max-height:80vh;overflow-y:auto}
+    .modal-content h2{margin-top:0}
+    .modal-content button{margin-top:12px}
     @media (max-width:480px){
       .header h1{font-size:16px}
       .msg{max-width:100%}
@@ -49,7 +58,11 @@
 <div class="app">
   <div class="header">
     <h1>🎤 Nova</h1>
-    <button class="install-btn" id="installBtn">📱 Install</button>
+    <div class="header-controls">
+      <button class="btn-icon" id="themeToggle" title="Toggle theme">🌙</button>
+      <button class="btn-icon" id="historyBtn" title="View history">📋</button>
+      <button class="btn-small install-btn" id="installBtn">📱 Install</button>
+    </div>
   </div>
   <div id="log" class="log"></div>
   <div class="input-area">
@@ -66,6 +79,18 @@
     </div>
   </div>
 </div>
+
+<!-- History Modal -->
+<div class="modal" id="historyModal">
+  <div class="modal-content">
+    <h2>📋 Chat History</h2>
+    <div id="historyList"></div>
+    <button id="exportBtn">📥 Export</button>
+    <button id="clearBtn">🗑️ Clear</button>
+    <button onclick="document.getElementById('historyModal').classList.remove('show')">Close</button>
+  </div>
+</div>
+
 <script src="/static/app.js"></script>
 </body>
 </html>
