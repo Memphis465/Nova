@@ -1,0 +1,45 @@
+"""Shell command execution tool."""
+
+import subprocess
+from .base import BaseTool, ToolExecutionError
+from .registry import register_tool
+
+
+@register_tool
+class ShellCommandTool(BaseTool):
+    """Execute shell commands on the system."""
+    
+    name = "shell"
+    description = "Execute bash commands and get output"
+    
+    def run(self, command: str, timeout: int = 30) -> dict:
+        """
+        Execute a shell command.
+        
+        Args:
+            command: The shell command to execute
+            timeout: Max seconds to wait (default 30)
+        
+        Returns:
+            Dict with stdout, stderr, and return code
+        """
+        try:
+            result = subprocess.run(
+                command,
+                shell=True,
+                capture_output=True,
+                text=True,
+                timeout=timeout
+            )
+            
+            return {
+                "stdout": result.stdout,
+                "stderr": result.stderr,
+                "returncode": result.returncode,
+                "success": result.returncode == 0
+            }
+        
+        except subprocess.TimeoutExpired:
+            raise ToolExecutionError(f"Command timed out after {timeout}s")
+        except Exception as e:
+            raise ToolExecutionError(f"Command execution failed: {str(e)}")

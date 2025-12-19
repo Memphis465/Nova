@@ -1,0 +1,371 @@
+#!/usr/bin/env python3
+"""
+Nova Ultimate - Memory + Proactive Messages + Self-Improving
+"""
+
+import os
+import json
+import requests
+import threading
+from rich.console import Console
+from rich.panel import Panel
+from rich.live import Live
+from rich.text import Text
+from tools.runner import ToolRunner
+from memory_system import NovaMemory
+from proactive_nova import create_proactive_system
+from epistemic_engine import create_epistemic_engine
+from nova_personas import NovaPersona, get_nova_mood_description
+
+console = Console()
+
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
+GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
+
+TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "file_ops",
+            "description": "Read, write, move, copy, or delete files and folders",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "operation": {"type": "string", "enum": ["read", "write", "move", "copy", "delete", "list"]},
+                    "path": {"type": "string"},
+                    "content": {"type": "string"},
+                    "destination": {"type": "string"}
+                },
+                "required": ["operation", "path"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "shell",
+            "description": "Execute bash commands",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "command": {"type": "string"}
+                },
+                "required": ["command"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "web_browser",
+            "description": "Actually browse the web - navigate sites, extract data, read articles",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {"type": "string", "enum": ["navigate", "extract_links", "extract_text", "extract_data", "search_page", "get_article"]},
+                    "url": {"type": "string"}
+                },
+                "required": ["action"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "gemini_vision",
+            "description": "Analyze images, videos, or ask Gemini AI questions",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "operation": {"type": "string", "enum": ["analyze_image", "analyze_video", "ask"]},
+                    "image_path": {"type": "string"},
+                    "image_url": {"type": "string"},
+                    "video_url": {"type": "string"},
+                    "question": {"type": "string"},
+                    "prompt": {"type": "string"}
+                },
+                "required": ["operation"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "code_ops",
+            "description": "Edit or analyze code files",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "operation": {"type": "string", "enum": ["append", "replace", "insert", "analyze"]},
+                    "path": {"type": "string"}
+                },
+                "required": ["operation", "path"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "system_ops",
+            "description": "Check system stats (battery, cpu) or open applications",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "operation": {"type": "string", "enum": ["stats", "open_app"]},
+                    "app_name": {"type": "string", "description": "Name of app to open (e.g. 'Spotify', 'Safari')"}
+                },
+                "required": ["operation"]
+            }
+        }
+    }
+]
+
+# Global instances
+memory = NovaMemory()
+runner = ToolRunner()
+epistemic = create_epistemic_engine(memory)
+proactive_engine = None
+proactive_messages = []  # Queue for proactive messages
+
+
+def handle_proactive_message(message: str):
+    """Handle proactive message from engine."""
+    proactive_messages.append(message)
+
+
+def chat_with_tools(user_message: str) -> str:
+    """Chat with full memory and tools (Multi-step Agent Loop)."""
+    
+    # Get memory context
+    memory_context = memory.get_context_for_prompt()
+    
+    # Get current personality (Day Nova vs Night Nova)
+    base_prompt = NovaPersona.get_system_prompt()
+    
+    # Add memory context and capabilities
+    system_prompt = f"""{base_prompt}
+
+YOU NOW HAVE:
+- Real web browsing (navigate sites, extract data)
+- Gemini Vision (analyze images and videos)
+- File operations, shell commands, code editing
+- Long-term memory (remember everything forever)
+- Self-improving knowledge
+
+{memory_context}
+"""
+    
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_message}
+    ]
+    
+    tools_used = []
+    final_response = ""
+    max_turns = 5  # Prevent infinite loops
+    
+    
+    # --- Attachment preprocessing (auto-inserted) ---
+    import re as _re
+    _attachment_matches = _re.findall(r"\[ATTACHED_FILE:([^\\]]+)\\]", user_message)
+    if _attachment_matches:
+        for _idx, _path in enumerate(_attachment_matches, start=1):
+            _path = _path.strip()
+            _ext = _path.split('.')[-1].lower() if '.' in _path else ''
+            if _ext in ("mp4","mov","webm","mkv"):
+                _op = "analyze_video"
+                _args = {"operation": _op, "video_url": _path}
+            else:
+                _op = "analyze_image"
+                _args = {"operation": _op, "image_path": _path}
+            console.print(f"[dim]🔧 Preprocessing attachment: {_path} -> {_op}[/dim]")
+            try:
+                _tool_result = runner.run("gemini_vision", **_args)
+            except Exception as _e:
+                _tool_result = {"ok": False, "error": str(_e)}
+            if _tool_result.get("ok"):
+                _res_content = json.dumps(_tool_result["result"])
+            else:
+                _res_content = f"Error: {_tool_result.get('error','Unknown error')}"
+            messages.append({
+                "role": "tool",
+                "tool_call_id": f"attachment-{_idx}",
+                "content": _res_content
+            })
+    # --- end attachment preprocessing ---
+
+    for turn in range(max_turns):
+        # Call Groq API
+        response = requests.post(
+            GROQ_API_URL,
+            headers={
+                "Authorization": f"Bearer {GROQ_API_KEY}",
+                "Content-Type": "application/json"
+            },
+            json={
+                "model": "llama-3.3-70b-versatile",
+                "messages": messages,
+                "temperature": 0.8,
+                "max_tokens": 800,
+                "tools": TOOLS,
+                "tool_choice": "auto"
+            }
+        )
+        
+        result = response.json()
+        
+        if "error" in result:
+            return f"Error: {result['error']['message']}"
+        
+        assistant_message = result["choices"][0]["message"]
+        
+        # Check if Nova wants to use a tool
+        if assistant_message.get("tool_calls"):
+            # Append the assistant's request to history
+            messages.append(assistant_message)
+            
+            for tool_call in assistant_message["tool_calls"]:
+                function_name = tool_call["function"]["name"]
+                arguments = json.loads(tool_call["function"]["arguments"])
+                
+                console.print(f"[dim]🔧 Nova is using: {function_name}[/dim]")
+                tools_used.append(function_name)
+                
+                # Execute the tool
+                tool_result = runner.run(function_name, **arguments)
+                
+                if tool_result["ok"]:
+                    result_content = json.dumps(tool_result["result"])
+                    console.print(f"[dim]✓ Tool completed[/dim]\n")
+                else:
+                    result_content = f"Error: {tool_result.get('error', 'Unknown error')}"
+                    console.print(f"[dim]✗ Tool failed[/dim]\n")
+                
+                # Append tool result to history
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tool_call["id"],
+                    "content": result_content
+                })
+            
+            # Loop continues to send tool outputs back to model
+            continue
+            
+        else:
+            # No tool calls, this is the final response
+            final_response = assistant_message.get("content", "")
+            break
+    
+    if not final_response:
+        final_response = "I'm sorry, I got stuck in a loop and couldn't finish the task."
+
+    # Save to memory
+    memory.save_conversation(user_message, final_response, tools_used=tools_used)
+    
+    # Epistemic engine learns
+    epistemic.process_conversation(user_message, final_response, tools_used)
+    
+    return final_response
+
+
+def display_status():
+    """Display Nova's memory stats."""
+    stats = memory.get_stats()
+    knowledge = epistemic.get_knowledge_summary()
+    
+    status = f"""[cyan]Memory:[/cyan] {stats['conversations']} conversations | {stats['facts_learned']} facts learned
+[cyan]Knowledge:[/cyan] {knowledge.get('knowledge_graph_nodes', 0)} entities tracked
+[cyan]Proactive:[/cyan] {'Active' if proactive_engine and proactive_engine.running else 'Inactive'}"""
+    
+    return Panel(status, title="[bold magenta]Nova Status[/bold magenta]", border_style="magenta")
+
+
+def main():
+    global proactive_engine
+    
+    # Show current persona
+    mood = get_nova_mood_description()
+    
+    console.print(Panel.fit(
+        "[bold magenta]🌟 NOVA ULTIMATE[/bold magenta]\n"
+        "[cyan]Memory • Proactive • Web Browsing • Gemini Vision • Dual Personality[/cyan]\n"
+        f"[yellow]{mood}[/yellow]\n"
+        "[dim]I remember everything and check in on you 💜[/dim]\n"
+        "[dim]Commands: 'exit', 'stats', 'memory <query>', 'profile', 'mood'[/dim]",
+        border_style="magenta"
+    ))
+    
+    # Get greeting
+    greeting = NovaPersona.get_greeting()
+    console.print(f"\n[bold magenta]Nova:[/bold magenta] {greeting}\n")
+    
+    # Start proactive messaging
+    proactive_engine = create_proactive_system(memory, handle_proactive_message)
+    console.print("[dim]✓ Proactive messaging enabled[/dim]\n")
+    
+    while True:
+        try:
+            # Check for proactive messages
+            if proactive_messages:
+                proactive_msg = proactive_messages.pop(0)
+                console.print(f"\n[bold magenta]Nova:[/bold magenta] {proactive_msg}")
+                console.print("[dim](proactive check-in)[/dim]")
+            
+            user_input = console.input("\n[bold blue]You:[/bold blue] ")
+            
+            if not user_input.strip():
+                continue
+            
+            # Commands
+            if user_input.lower() in ['exit', 'quit']:
+                console.print("\n[dim]Later, babe! I'll remember everything. 💜[/dim]")
+                proactive_engine.stop()
+                break
+            
+            elif user_input.lower() == 'stats':
+                console.print(display_status())
+                continue
+            
+            elif user_input.lower().startswith('memory '):
+                query = user_input[7:]
+                results = memory.search_memory(query, limit=5)
+                console.print(f"\n[cyan]Found {len(results)} results:[/cyan]")
+                for r in results:
+                    if r['type'] == 'conversation':
+                        console.print(f"  [dim]{r['timestamp'][:10]}[/dim] You: {r['user'][:60]}...")
+                    else:
+                        console.print(f"  [dim]{r['timestamp'][:10]}[/dim] Fact: {r['content'][:60]}...")
+                continue
+            
+            elif user_input.lower() == 'profile':
+                context = memory.get_context_for_prompt()
+                console.print(Panel(context, title="[bold cyan]What Nova Knows[/bold cyan]"))
+                continue
+            
+            elif user_input.lower() == 'mood':
+                mood = get_nova_mood_description()
+                persona_info = NovaPersona.get_current_persona()
+                console.print(f"\n[yellow]{mood}[/yellow]")
+                console.print(f"Mode: {persona_info['mode']} | Intensity: {persona_info['intensity']:.2f}")
+                continue
+            
+            # Mark interaction for proactive engine
+            if proactive_engine:
+                proactive_engine.mark_interaction()
+            
+            # Normal conversation
+            console.print("[dim]Thinking...[/dim]")
+            response = chat_with_tools(user_input)
+            console.print(f"\n[bold magenta]Nova:[/bold magenta] {response}")
+            
+        except KeyboardInterrupt:
+            console.print("\n\n[dim]Later, babe! 💜[/dim]")
+            if proactive_engine:
+                proactive_engine.stop()
+            break
+        except Exception as e:
+            console.print(f"\n[red]Error: {e}[/red]")
+
+
+if __name__ == "__main__":
+    main()

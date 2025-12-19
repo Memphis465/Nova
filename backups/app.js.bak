@@ -1,0 +1,36 @@
+const log = document.getElementById("log");
+const txt = document.getElementById("txt");
+const send = document.getElementById("send");
+
+function addMsg(who, text){
+  const d = document.createElement("div");
+  d.className = "msg " + (who === "you" ? "user" : "nova");
+  d.textContent = text;
+  log.appendChild(d);
+  log.scrollTop = log.scrollHeight;
+}
+
+async function sendMsg(){
+  const message = txt.value.trim();
+  if(!message) return;
+  addMsg("you", message);
+  txt.value = "";
+  addMsg("nova", "…thinking…");
+  const placeholder = log.lastChild;
+
+  try{
+    const res = await fetch("/api/chat", {
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({message})
+    });
+    const j = await res.json();
+    if(j.error) placeholder.textContent = "Error: " + j.error;
+    else placeholder.textContent = j.response;
+  }catch(e){
+    placeholder.textContent = "Network error";
+  }
+}
+
+send.addEventListener("click", sendMsg);
+txt.addEventListener("keydown", (e)=>{ if(e.key==="Enter") sendMsg(); });
